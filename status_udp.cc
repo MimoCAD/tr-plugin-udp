@@ -11,7 +11,6 @@
 #include <map>
 #include <cstring>
 #include <regex>
-#include <mqtt/client.h>
 #include <trunk-recorder/source.h>
 #include <json.hpp>
 #include <trunk-recorder/plugin_manager/plugin_api.h>
