@@ -11,9 +11,9 @@
 #include <map>
 #include <cstring>
 #include <regex>
-#include <trunk-recorder/source.h>
+#include "../../trunk-recorder/source.h"
 #include <json.hpp>
-#include <trunk-recorder/plugin_manager/plugin_api.h>
+#include "../../trunk-recorder/plugin_manager/plugin_api.h"
 #include <boost/archive/iterators/base64_from_binary.hpp>
 #include <boost/archive/iterators/transform_width.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>    //time_formatters.hpp>
