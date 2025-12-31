@@ -8,9 +8,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <string>
-#include <map>
 #include <cstring>
-#include <regex>
 #include "../../trunk-recorder/source.h"
 #include <json.hpp>
 #include "../../trunk-recorder/plugin_manager/plugin_api.h"
@@ -66,24 +64,28 @@ enum Type : u8 {
 };
 static_assert(std::is_same_v<std::underlying_type_t<Type>, u8>, "Type must be u8");
 
+// Decalared Before Defined.
+bool alias_eq(const char* a, const char* b);
+
 // Packets
 #pragma pack(push, 1)
 struct Packet {
-    // Header: 4 Bytes (32 bits)
+    // Header: 4 Bytes (32 bits - 4 Bytes)
     char hdr[2] = {'M', 'C'};       // Prefix: 'M','C'
     Type typ = Type::Type_Invalid;  // Type: 1 byte
-    u8   len = 5;                   // Size: Whole packet size, including Header, System, Radio, Payload. Size = Len * 4;
+    u8   len = 8;                   // Size: Whole packet size, including Header, System, Radio, Payload. Size = Len * 4;
 
-    // System: 4 Bytes (32 bits)
-    u32  p25Id = 0;     // [31:20] = SystemID (12b), [19:0] = WACN (20b)
+    // System: 4 Bytes (32 bits - 4 Bytes)
+    u32  p25Id = 0;                 // [31:20] = SystemID (12b), [19:0] = WACN (20b)
 
-    // Radio: 8 Bytes (64 bits)
-    u16  nac = 0;       // NAC
-    u16  tgId = 0;      // Talk Group ID
-    u32  radioId = 0;   // Radio's Src ID
+    // Radio: 20 Bytes (160 bits - 20 Bytes)
+    u16  nac = 0;                   // NAC
+    u16  tgId = 0;                  // Talk Group ID
+    u32  radioId = 0;               // Radio's Src ID
+    char alias[12] = {0};           // Radio's Alias
 
-    // Payload: 4 Bytes (32 Bits)
-    u32  ts = 0;        // Time Stamp (UNIX Epoch Seconds)
+    // Payload: 4 Bytes (32 Bits - 4 Bytes)
+    u32  ts = 0;                    // Time Stamp (UNIX Epoch Seconds)
 
     bool operator==(const Packet& o) const {
         return
@@ -93,12 +95,13 @@ struct Packet {
             nac == o.nac &&
             tgId == o.tgId &&
             radioId == o.radioId &&
+            alias_eq(alias, o.alias) &&
             ts == o.ts;
     }
 };
 #pragma pack(pop)
 
-static_assert(sizeof(Packet) == 20, "Packet header must be 20 bytes");
+static_assert(sizeof(Packet) == 32, "Packet must be 32 bytes");
 static_assert(alignof(Packet) == 1, "Packet must be packed");
 
 // Packet Helpers
@@ -119,6 +122,16 @@ inline constexpr bool valid_hdr(const Packet& p) {
 }
 constexpr u32 make_p25id(u16 sysId, u32 wacn) {
     return (u32(sysId & 0x0FFF) << 20) | (wacn & 0xFFFFF);
+}
+inline void stringToChar12(const std::string& input, char out[12]) {
+    // Since strncpy already null-pads when the source is shorter
+    std::strncpy(out, input.c_str(), 11);
+
+    // Ensure the last element is always null
+    out[11] = '\0';
+}
+bool alias_eq(const char* a, const char* b) {
+    return std::strcmp(a, b) == 0;
 }
 
 class Status_Udp : public Plugin_Api
@@ -157,12 +170,13 @@ public:
             u32 source_id = stat_node.get<u32>("srcId");
 
             Packet pkt{};
-            pkt.typ     = Type::Unit_PTTP;
-            pkt.p25Id   = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
-            pkt.nac     = p25_nac(sys->get_nac());
-            pkt.tgId    = call->get_talkgroup();
-            pkt.radioId = source_id;
-            pkt.ts      = time(NULL);
+            pkt.typ         = Type::Unit_PTTP;
+            pkt.p25Id       = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
+            pkt.nac         = p25_nac(sys->get_nac());
+            pkt.tgId        = call->get_talkgroup();
+            pkt.radioId     = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
+            pkt.ts          = time(NULL);
 
             return send_packet(pkt);
         };
@@ -182,6 +196,7 @@ public:
             pkt.p25Id   = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -202,6 +217,7 @@ public:
             pkt.p25Id   = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -222,6 +238,7 @@ public:
             pkt.p25Id   = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -243,6 +260,7 @@ public:
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.tgId    = talkgroup_num;
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -263,6 +281,7 @@ public:
             pkt.p25Id   = make_p25id(sys->get_sys_site_id(), sys->get_wacn());
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -283,6 +302,7 @@ public:
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.tgId    = talkgroup_num;
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
@@ -304,6 +324,7 @@ public:
             pkt.nac     = p25_nac(sys->get_nac());
             pkt.tgId    = talkgroup_num;
             pkt.radioId = source_id;
+            stringToChar12(sys->find_unit_tag(source_id), pkt.alias);
             pkt.ts      = time(NULL);
 
             return send_packet(pkt);
